@@ -506,6 +506,23 @@ sms:
     phone_number: "+33612345678"
 ```
 
+### Use NVIDIA for the LLM
+
+To use NVIDIA (e.g. Nemotron models) instead of Azure OpenAI for a deployment, get an API key from [NVIDIA's API catalog](https://build.nvidia.com/) and add the following in the `config.yaml` file:
+
+```yaml
+# config.yaml
+llm:
+  slow:
+    context: 131072
+    endpoint: https://integrate.api.nvidia.com/v1
+    mode: nvidia
+    model: nvidia/nemotron-3-ultra-550b-a55b
+    nvidia_api_key: xxx
+```
+
+`fast` and `slow` deployments are configured independently, so it's possible to mix an Azure OpenAI deployment with a NVIDIA one.
+
 ### Customize the prompts
 
 Note that prompt examples contains `{xxx}` placeholders. These placeholders are replaced by the bot with the corresponding data. For example, `{bot_name}` is internally replaced by the bot name. Be sure to write all the TTS prompts in English. This language is used as a pivot language for the conversation translation. All texts are referenced as lists, so user can have a different experience each time they call, thus making the conversation more engaging.

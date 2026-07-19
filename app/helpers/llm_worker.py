@@ -1,7 +1,7 @@
 import json
 from collections.abc import AsyncGenerator, Callable
 from os import environ
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import tiktoken
 from azure.ai.inference._model_base import Model, SdkJSONEncoder
@@ -18,6 +18,17 @@ from azure.core.exceptions import (
     ServiceResponseError,
 )
 from json_repair import repair_json
+from openai import (
+    NOT_GIVEN,
+    APIConnectionError,
+    AsyncOpenAI,
+    RateLimitError,
+)
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionToolParam,
+)
+from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from pydantic import ValidationError
 from tenacity import (
     AsyncRetrying,
@@ -59,6 +70,8 @@ class MaximumTokensReachedError(Exception):
 
 _retried_exceptions = [
     ServiceResponseError,
+    APIConnectionError,
+    RateLimitError,
 ]
 
 
@@ -68,7 +81,7 @@ async def completion_stream(
     messages: list[MessageModel],
     system: list[SystemMessage],
     tools: list[ChatCompletionsToolDefinition] = [],
-) -> AsyncGenerator[StreamingChatResponseMessageUpdate]:
+) -> AsyncGenerator[StreamingChatResponseMessageUpdate | ChoiceDelta]:
     """
     Returns a stream of completions.
 
@@ -124,7 +137,7 @@ async def _completion_stream_worker(
     messages: list[MessageModel],
     system: list[SystemMessage],
     tools: list[ChatCompletionsToolDefinition] = [],
-) -> AsyncGenerator[StreamingChatResponseMessageUpdate]:
+) -> AsyncGenerator[StreamingChatResponseMessageUpdate | ChoiceDelta]:
     """
     Returns a stream of completions.
     """
@@ -143,14 +156,28 @@ async def _completion_stream_worker(
     )
 
     # Start completion
-    stream = await client.complete(
-        max_tokens=max_tokens,
-        messages=prompt,
-        stream=True,
-        # AI Inference API doesn't support enpty tools array
-        # See: https://github.com/microsoft/call-center-ai/issues/399
-        tools=tools or None,
-    )
+    if isinstance(client, AsyncOpenAI):
+        stream = await client.chat.completions.create(
+            extra_body=_nvidia_extra_body(platform),
+            max_tokens=max_tokens,
+            messages=_to_openai_messages(prompt),
+            model=platform.model,
+            seed=platform.seed,
+            stream=True,
+            temperature=platform.temperature,
+            # NVIDIA API doesn't support empty tools array
+            tools=_to_openai_tools(tools) if tools else NOT_GIVEN,
+            top_p=platform.top_p,
+        )
+    else:
+        stream = await client.complete(
+            max_tokens=max_tokens,
+            messages=prompt,
+            stream=True,
+            # AI Inference API doesn't support enpty tools array
+            # See: https://github.com/microsoft/call-center-ai/issues/399
+            tools=tools or None,
+        )
 
     # Yield chuncks
     async for chunck in stream:
@@ -270,8 +297,21 @@ async def _completion_sync_worker(
     async for attempt in retryed:
         with attempt:
             # Start completion
-            choice = (
-                await client.complete(
+            if isinstance(client, AsyncOpenAI):
+                completion = await client.chat.completions.create(
+                    extra_body=_nvidia_extra_body(platform),
+                    max_tokens=max_tokens,
+                    messages=_to_openai_messages(prompt),
+                    model=platform.model,
+                    response_format={"type": "json_object"}
+                    if json_output
+                    else NOT_GIVEN,
+                    seed=platform.seed,
+                    temperature=platform.temperature,
+                    top_p=platform.top_p,
+                )
+            else:
+                completion = await client.complete(
                     max_tokens=max_tokens,
                     messages=prompt,
                     model=platform.model,
@@ -279,7 +319,7 @@ async def _completion_sync_worker(
                     seed=platform.seed,
                     temperature=platform.temperature,
                 )
-            ).choices[0]
+            choice = completion.choices[0]
             # Azure OpenAI content filter
             if choice.finish_reason == "content_filter":
                 raise SafetyCheckError(
@@ -370,12 +410,55 @@ def _dump_sdk_model(message: Model) -> str:
     )
 
 
+def _to_openai_messages(
+    messages: list[ChatRequestMessage],
+) -> list[ChatCompletionMessageParam]:
+    """
+    Converts AI Inference SDK messages to the OpenAI wire format.
+
+    The AI Inference API is designed to be a superset of the OpenAI chat completions schema, so dumping the SDK models to JSON is enough to get OpenAI-compatible payloads.
+    """
+    return cast(
+        list[ChatCompletionMessageParam],
+        [
+            {
+                key: value
+                for key, value in json.loads(_dump_sdk_model(message)).items()
+                if value is not None
+            }
+            for message in messages
+        ],
+    )
+
+
+def _to_openai_tools(
+    tools: list[ChatCompletionsToolDefinition],
+) -> list[ChatCompletionToolParam]:
+    """
+    Converts AI Inference SDK tool definitions to the OpenAI wire format.
+    """
+    return cast(
+        list[ChatCompletionToolParam],
+        [json.loads(_dump_sdk_model(tool)) for tool in tools],
+    )
+
+
+def _nvidia_extra_body(platform: LlmDeploymentModel) -> dict:
+    """
+    Returns the NVIDIA-specific reasoning parameters, sent as `extra_body`.
+    """
+    return {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "reasoning_budget": platform.reasoning_budget,
+    }
+
+
 async def _use_llm(
     is_fast: bool,
-) -> tuple[ChatCompletionsClient, LlmDeploymentModel]:
+) -> tuple[ChatCompletionsClient | AsyncOpenAI, LlmDeploymentModel]:
     """
     Returns an LLM client and platform model.
 
-    The client is either an Azure OpenAI or an OpenAI client, depending on the configuration.
+    The client is either an Azure AI Inference client or an OpenAI-compatible client (e.g. NVIDIA), depending on the configuration.
     """
     return await CONFIG.llm.selected(is_fast).client()

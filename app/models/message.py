@@ -11,6 +11,7 @@ from azure.ai.inference.models import (
     ToolMessage,
     UserMessage,
 )
+from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
 from pydantic import BaseModel, Field, field_validator
 
 _FUNC_NAME_SANITIZER_R = r"[^a-zA-Z0-9_-]"
@@ -68,7 +69,9 @@ class ToolModel(BaseModel):
         """
         return bool(self.tool_id and self.function_name)
 
-    def add_delta(self, delta: StreamingChatResponseToolCallUpdate) -> "ToolModel":
+    def add_delta(
+        self, delta: StreamingChatResponseToolCallUpdate | ChoiceDeltaToolCall
+    ) -> "ToolModel":
         """
         Update the tool model with a delta.
 
@@ -76,9 +79,9 @@ class ToolModel(BaseModel):
         """
         if delta.id:
             self.tool_id = delta.id
-        if delta.function.name:
+        if delta.function and delta.function.name:
             self.function_name = delta.function.name
-        if delta.function.arguments:
+        if delta.function and delta.function.arguments:
             self.function_arguments += delta.function.arguments
         return self
 

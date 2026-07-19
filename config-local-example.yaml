@@ -31,6 +31,13 @@ llm:
     context: 1047576
     endpoint: https://xxx.openai.azure.com/openai/deployments/gpt-4.1-2025-04-14
     model: gpt-4.1
+  # Alternative: use NVIDIA (e.g. Nemotron models) instead of Azure OpenAI
+  # slow:
+  #   context: 131072
+  #   endpoint: https://integrate.api.nvidia.com/v1
+  #   mode: nvidia
+  #   model: nvidia/nemotron-3-ultra-550b-a55b
+  #   nvidia_api_key: xxx
 
 ai_search:
   embedding_deployment: text-embedding-3-large-1
