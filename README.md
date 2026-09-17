@@ -205,9 +205,21 @@ graph LR
 
 [Prefer using GitHub Codespaces for a quick start.](https://codespaces.new/microsoft/call-center-ai?quickstart=1) The environment will setup automatically with all the required tools.
 
+On Linux and macOS, `./install.sh` provisions everything below (uv, Python 3.13, Git, make, a C toolchain, yq, and optionally the Azure, Twilio and dev tunnel CLIs), creates `.venv`, installs the locked dependency set, and scaffolds `config.yaml` and `.env`:
+
+```bash
+# from a checkout
+./install.sh
+
+# or standalone — clones into ~/call-center-ai first
+curl -fsSL https://raw.githubusercontent.com/Redcode44/call-center-ai/main/install.sh | bash
+```
+
+Useful flags: `--dir PATH`, `--branch NAME`, `--no-dev`, `--no-optional-tools`, `--skip-config`, `--non-interactive`, and `--ensure uv,yq,az` to install single tools. Run `./install.sh --help` for the full list. Windows is not supported directly — use WSL2 or the devcontainer.
+
 In macOS, with [Homebrew](https://brew.sh), simply type `make brew`.
 
-For other systems, make sure you have the following installed:
+To install the prerequisites yourself, make sure you have the following:
 
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [Twilio CLI](https://www.twilio.com/docs/twilio-cli/getting-started/install) (optional)
@@ -272,7 +284,7 @@ make logs name=my-rg-name
 
 #### 1. Prerequisites
 
-If you skiped the `make brew` command from the first install section, make sure you have the following installed:
+If you skiped the `./install.sh` or `make brew` command from the first install section, make sure you have the following installed:
 
 - [Rust](https://rust-lang.org)
 - [uv](https://docs.astral.sh/uv)
