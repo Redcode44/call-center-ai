@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Passwort-Schmiede</title>
+<meta name="description" content="Sichere Passwörter offline auf dem Handy erzeugen.">
+<meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e141c" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Passwörter">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+/* Layout: eine zentrale Werkbank-Spalte; Passwort oben als Anzeige, darunter Regler, Entropie-Leiste, Verlauf */
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --fg: #16212e;
+  --muted: #5b6878;
+  --line: #d5dbe4;
+  --accent: #2753c9;
+  --accent-fg: #ffffff;
+  --weak: #c2412d;
+  --ok: #c98a12;
+  --strong: #1f8a5b;
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e141c; --surface: #161f2a; --fg: #e6ecf3; --muted: #94a2b3; --line: #2a3644;
+    --accent: #7fa3ff; --accent-fg: #0e141c; --weak: #f07a66; --ok: #e6b450; --strong: #4fc78f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e141c; --surface: #161f2a; --fg: #e6ecf3; --muted: #94a2b3; --line: #2a3644;
+  --accent: #7fa3ff; --accent-fg: #0e141c; --weak: #f07a66; --ok: #e6b450; --strong: #4fc78f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 56px;
+}
+main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+header h1 {
+  font-family: var(--font-display); font-weight: 700; font-size: 1.9rem; letter-spacing: -0.01em;
+  margin: 0; text-wrap: balance;
+}
+header p { margin: 4px 0 0; color: var(--muted); }
+
+.display {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px; display: flex; flex-direction: column; gap: 16px;
+}
+.pw {
+  font-family: var(--font-mono); font-weight: 500; font-size: clamp(1.1rem, 4.2vw, 1.55rem);
+  word-break: break-all; line-height: 1.45; min-height: 2.9em; user-select: all;
+}
+.pw .d { color: var(--accent); }
+.pw .s { color: var(--ok); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+button {
+  font: 600 0.95rem var(--font-body); border-radius: 10px; padding: 10px 18px; cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: var(--fg);
+}
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button:hover { filter: brightness(1.06); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast { color: var(--strong); font-weight: 500; align-self: center; font-size: 0.9rem; }
+
+.meter { display: flex; flex-direction: column; gap: 6px; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; width: 0; background: var(--weak); transition: width .25s, background .25s; }
+.meter-row { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.88rem; color: var(--muted); }
+.meter-row b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.pill { font-weight: 600; font-size: 0.8rem; padding: 2px 10px; border-radius: 99px; color: var(--surface); background: var(--weak); }
+
+section.settings { display: flex; flex-direction: column; gap: 18px; }
+.label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.len { display: flex; align-items: center; gap: 14px; }
+.len input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+.len output { font-family: var(--font-mono); font-weight: 700; font-size: 1.2rem; width: 2.6ch; text-align: right; font-variant-numeric: tabular-nums; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 16px; }
+.opts label { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; }
+.opts input { width: 18px; height: 18px; accent-color: var(--accent); }
+.opts code { font-family: var(--font-mono); font-size: 0.82rem; color: var(--muted); }
+.err { color: var(--weak); font-size: 0.9rem; }
+
+.history { display: flex; flex-direction: column; gap: 8px; }
+.history ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.history li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--line); padding: 8px 0;
+}
+.history li code { font-family: var(--font-mono); font-size: 0.88rem; word-break: break-all; min-width: 0; }
+.history li button { padding: 4px 12px; font-size: 0.82rem; flex-shrink: 0; }
+.note { font-size: 0.82rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+</style>
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>Passwort-Schmiede</h1>
+    <p>Sichere Passwörter, auch offline. Nichts wird gespeichert oder gesendet.</p>
+  </header>
+
+  <div class="display">
+    <div class="pw" id="pw" aria-live="polite"></div>
+    <div class="meter">
+      <div class="bar"><span id="bar"></span></div>
+      <div class="meter-row">
+        <span><b id="bits">0</b> Bit Entropie · Knacken bei 10¹² Versuchen/s: <b id="crack">–</b></span>
+        <span class="pill" id="pill">Schwach</span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="gen">Neu generieren</button>
+      <button id="copy">Kopieren</button>
+      <span class="toast" id="toast" hidden>Kopiert</span>
+    </div>
+  </div>
+
+  <section class="settings">
+    <div>
+      <div class="label">Länge</div>
+      <div class="len">
+        <input type="range" id="length" min="6" max="64" value="16" aria-label="Länge">
+        <output id="lenOut">16</output>
+      </div>
+    </div>
+    <div>
+      <div class="label">Zeichen</div>
+      <div class="opts">
+        <label><input type="checkbox" id="lower" checked> Kleinbuchstaben <code>a–z</code></label>
+        <label><input type="checkbox" id="upper" checked> Großbuchstaben <code>A–Z</code></label>
+        <label><input type="checkbox" id="digits" checked> Ziffern <code>0–9</code></label>
+        <label><input type="checkbox" id="symbols" checked> Sonderzeichen <code>!@#$%^&amp;*()_+</code></label>
+        <label><input type="checkbox" id="ambig"> Ähnliche Zeichen weglassen <code>0 O l 1 I</code></label>
+      </div>
+      <p class="err" id="err" hidden>Wähle mindestens eine Zeichenart aus.</p>
+    </div>
+  </section>
+
+  <section class="history">
+    <div class="label">Zuletzt generiert</div>
+    <ol id="hist"></ol>
+    <p class="note">Der Verlauf existiert nur, solange die App geöffnet ist.</p>
+  </section>
+</main>
+
+<script>
+const SETS = {
+  lower: 'abcdefghijklmnopqrstuvwxyz',
+  upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  digits: '0123456789',
+  symbols: '!@#$%^&*()_+'
+};
+const AMBIG = /[0Ol1I]/g;
+const $ = id => document.getElementById(id);
+const history = [];
+
+function rand(max) {
+  const limit = Math.floor(0x100000000 / max) * max;
+  const buf = new Uint32Array(1);
+  do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+  return buf[0] % max;
+}
+
+function activeSets() {
+  return Object.keys(SETS).filter(k => $(k).checked)
+    .map(k => $('ambig').checked ? SETS[k].replace(AMBIG, '') : SETS[k]);
+}
+
+function generate() {
+  const sets = activeSets();
+  $('err').hidden = sets.length > 0;
+  if (!sets.length) return null;
+  const length = +$('length').value;
+  const all = sets.join('');
+  // Ein Zeichen aus jeder gewählten Klasse, Rest zufällig, dann mischen
+  const chars = sets.slice(0, length).map(s => s[rand(s.length)]);
+  while (chars.length < length) chars.push(all[rand(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return { pw: chars.join(''), pool: all.length };
+}
+
+function crackTime(bits) {
+  const sec = Math.pow(2, bits - 1) / 1e12; // im Mittel halber Suchraum
+  const units = [[31557600e9, 'Mrd. Jahre'], [31557600e6, 'Mio. Jahre'], [31557600, 'Jahre'],
+                 [86400, 'Tage'], [3600, 'Stunden'], [60, 'Minuten'], [1, 'Sekunden']];
+  if (sec < 1) return 'sofort';
+  for (const [s, name] of units) {
+    if (sec >= s) {
+      const v = sec / s;
+      return (v >= 1000 && s === units[0][0]) ? 'praktisch nie' : v.toLocaleString('de-DE', { maximumFractionDigits: v < 10 ? 1 : 0 }) + ' ' + name;
+    }
+  }
+}
+
+function render(pw, pool) {
+  const el = $('pw');
+  el.textContent = '';
+  for (const c of pw) {
+    const span = document.createElement('span');
+    if (/[0-9]/.test(c)) span.className = 'd';
+    else if (!/[a-zA-Z]/.test(c)) span.className = 's';
+    span.textContent = c;
+    el.appendChild(span);
+  }
+  const bits = Math.round(pw.length * Math.log2(pool));
+  $('bits').textContent = bits;
+  $('crack').textContent = crackTime(bits);
+  let level, color;
+  if (bits < 50) { level = 'Schwach'; color = 'var(--weak)'; }
+  else if (bits < 80) { level = 'Mittel'; color = 'var(--ok)'; }
+  else { level = 'Stark'; color = 'var(--strong)'; }
+  $('bar').style.width = Math.min(100, bits / 128 * 100) + '%';
+  $('bar').style.background = color;
+  $('pill').textContent = level;
+  $('pill').style.background = color;
+}
+
+function renderHistory() {
+  const ol = $('hist');
+  ol.textContent = '';
+  history.slice(1, 6).forEach(p => {
+    const li = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = p;
+    const b = document.createElement('button');
+    b.textContent = 'Kopieren';
+    b.onclick = () => copy(p, b);
+    li.append(code, b);
+    ol.appendChild(li);
+  });
+  if (history.length < 2) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="note">Noch keine früheren Passwörter.</span>';
+    ol.appendChild(li);
+  }
+}
+
+function run() {
+  const r = generate();
+  if (!r) return;
+  history.unshift(r.pw);
+  if (history.length > 6) history.length = 6;
+  render(r.pw, r.pool);
+  renderHistory();
+}
+
+let toastTimer;
+function copy(text, btn) {
+  const done = () => {
+    if (btn) { const t = btn.textContent; btn.textContent = 'Kopiert'; setTimeout(() => btn.textContent = t, 1200); }
+    else { $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, 1400); }
+  };
+  navigator.clipboard?.writeText(text).then(done).catch(() => {
+    const sel = window.getSelection(), range = document.createRange();
+    range.selectNodeContents($('pw')); sel.removeAllRanges(); sel.addRange(range);
+  });
+}
+
+$('gen').onclick = run;
+$('copy').onclick = () => history[0] && copy(history[0]);
+$('length').oninput = e => { $('lenOut').textContent = e.target.value; run(); };
+['lower', 'upper', 'digits', 'symbols', 'ambig'].forEach(id => $(id).onchange = run);
+run();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
